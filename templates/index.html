@@ -285,13 +285,64 @@
         flex: 1;
         min-width: 250px;
     }
-    
+
+    .page-range {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 15px 0;
+    }
+
+    .page-range input[type="number"] {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 8px;
+        width: 80px;
+        color: #f8fafc;
+    }
+
+    .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
     @media (max-width: 768px) {
         .container { padding: 15px; }
         header h1 { font-size: 2rem; }
         .card { padding: 20px; }
         .search-container { flex-direction: column; }
         .search-input { width: 100%; }
+    }
+
+    /* Download Button Styles */
+    .download-btn {
+        background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+        border: none;
+        border-radius: 12px;
+        padding: 12px 24px;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 200px;
+    }
+    
+    .download-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+    
+    .download-btn:before {
+        content: "⭳";
+        font-size: 1.2em;
     }
 </style>
 </head>
@@ -305,18 +356,23 @@
     <!-- File Upload -->
     <div class="card">
         <h2>
-            <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+            <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
             </svg>
-            Upload PDF Document
+            Upload PDF
         </h2>
-        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-            <div class="file-input-wrapper" onclick="document.getElementById('pdfFile').click()">
-                <input type="file" id="pdfFile" accept=".pdf">
-                <div class="file-label">Click to select PDF file or drag & drop</div>
+        <form id="uploadForm">
+            <div class="input-group">
+                <input type="file" id="pdfFile" name="file" accept=".pdf" required>
+                <div class="page-range">
+                    <label for="startPage">Start Page:</label>
+                    <input type="number" id="startPage" min="1" value="1">
+                    <label for="endPage">End Page:</label>
+                    <input type="number" id="endPage" min="1">
+                </div>
             </div>
-            <button onclick="uploadPDF()">Upload & Process</button>
-        </div>
+            <button type="submit" onclick="uploadPDF(event)">Upload & Parse</button>
+        </form>
         <div id="uploadStatus" class="status"></div>
     </div>
 
@@ -370,35 +426,68 @@
         </h2>
         <button class="btn-danger" onclick="clearData()">Clear All Data</button>
     </div>
+
+    <!-- Download Section -->
+    <div class="card">
+        <h2>
+            <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+            Download Parsed Data
+        </h2>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <button onclick="downloadFile('/download/toc-jsonl', 'TOC')" class="download-btn">
+                Download Table of Contents (JSONL)
+            </button>
+            <button onclick="downloadFile('/download/sections-jsonl', 'Sections')" class="download-btn">
+                Download Sections (JSONL)
+            </button>
+        </div>
+        <div id="downloadStatus" class="status"></div>
+    </div>
 </div>
 
 <script>
 const API_BASE = "http://127.0.0.1:8000";
 
 // Upload PDF
-async function uploadPDF() {
+async function uploadPDF(event) {
+    event.preventDefault();
+    
     const fileInput = document.getElementById("pdfFile");
+    const startPage = document.getElementById("startPage").value;
+    const endPage = document.getElementById("endPage").value;
+    
     if (!fileInput.files.length) {
-        showStatus("uploadStatus", "Please select a PDF file first", "error");
+        showStatus("uploadStatus", "Please select a file", "error");
         return;
     }
+
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
+    formData.append("start_page", startPage);
+    formData.append("end_page", endPage);
 
     showStatus("uploadStatus", "Processing document...", "loading");
+    
     try {
-        const res = await fetch(`${API_BASE}/upload-pdf`, {
+        const response = await fetch(`${API_BASE}/upload-pdf`, {
             method: "POST",
             body: formData
         });
-        const data = await res.json();
-        if (res.ok) {
-            showStatus("uploadStatus", `✅ Success: ${data.filename} processed (TOC: ${data.toc_count}, Sections: ${data.sections_count})`, "success");
-        } else {
-            showStatus("uploadStatus", `❌ Error: ${data.detail}`, "error");
+        
+        if (!response.ok) {
+            throw new Error("Upload failed");
         }
+        
+        const data = await response.json();
+        showStatus("uploadStatus", "Document processed successfully!", "success");
+        
+        // Reload TOC and sections
+        await loadTOC();
+        await loadSections();
     } catch (err) {
-        showStatus("uploadStatus", "❌ Upload failed. Please try again.", "error");
+        showStatus("uploadStatus", "Error: " + err.message, "error");
     }
 }
 
@@ -489,6 +578,28 @@ async function clearData() {
         document.getElementById("uploadStatus").innerHTML = "";
     } catch {
         showNotification("❌ Error clearing data");
+    }
+}
+
+// Download File
+async function downloadFile(url, type) {
+    try {
+        const response = await fetch(API_BASE + url);
+        if (!response.ok) {
+            throw new Error(`Failed to download ${type} file`);
+        }
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = url.includes('toc') ? 'usb_pd_toc.jsonl' : 'usb_pd_spec.jsonl';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(downloadUrl);
+        document.body.removeChild(a);
+        showStatus('downloadStatus', `${type} file downloaded successfully`, 'success');
+    } catch (error) {
+        showStatus('downloadStatus', error.message, 'error');
     }
 }
 

@@ -7,8 +7,8 @@ import json
 import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse,FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,11 +46,13 @@ async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    """Upload and parse a PDF file"""
+async def upload_pdf(
+    file: UploadFile = File(...),
+    start_page: int = Form(1),
+    end_page: Optional[int] = Form(None)
+):
+    """Upload and parse a PDF file with page range"""
     global toc_entries, sections, current_pdf_path
-    
-    print(f"Received file upload: {file.filename}")
     
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
@@ -60,46 +62,30 @@ async def upload_pdf(file: UploadFile = File(...)):
     upload_dir.mkdir(exist_ok=True)
     
     file_path = upload_dir / file.filename
-    print(f"Saving file to: {file_path}")
     
     try:
-        with open(file_path, "wb") as buffer:
+        with file_path.open("wb") as f:
             content = await file.read()
-            buffer.write(content)
-            print(f"File saved successfully, size: {len(content)} bytes")
-    except Exception as e:
-        print(f"Error saving file: {e}")
-        raise HTTPException(status_code=500, detail=f"Error saving uploaded file: {str(e)}")
-    
-    try:
-        print("Starting PDF parsing...")
-        # Parse the PDF
-        parser = USBPDParser(str(file_path), "USB Power Delivery Specification")
-        toc_entries, sections, validation_report = parser.process_pdf()
+            f.write(content)
         
-        print(f"Parsing completed. TOC entries: {len(toc_entries)}, Sections: {len(sections)}")
-        
-        # Save parsed data
-        parser.save_jsonl(toc_entries, "usb_pd_toc.jsonl")
-        parser.save_jsonl(sections, "usb_pd_spec.jsonl")
-        
+        # Initialize parser with page range
+        parser = USBPDParser()
+        toc_entries, sections = parser.parse_pdf(
+            str(file_path),
+            start_page=start_page,
+            end_page=end_page
+        )
         current_pdf_path = str(file_path)
         
         return {
-            "message": "PDF parsed successfully",
-            "toc_count": len(toc_entries),
-            "sections_count": len(sections),
-            "filename": file.filename
+            "message": "PDF processed successfully",
+            "filename": file.filename,
+            "page_range": f"{start_page}-{end_page if end_page else 'end'}",
+            "toc_entries": len(toc_entries),
+            "sections": len(sections)
         }
-        
     except Exception as e:
-        print(f"Error during PDF parsing: {e}")
-        import traceback
-        traceback.print_exc()
-        # Clean up on error
-        if file_path.exists():
-            file_path.unlink()
-        raise HTTPException(status_code=500, detail=f"Error parsing PDF: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/toc")
 async def get_toc():
@@ -227,6 +213,43 @@ async def clear_data():
                 pass
     
     return {"message": "All data cleared successfully"}
+
+
+from fastapi.responses import FileResponse
+import os
+
+@app.get("/download/toc-jsonl")
+async def download_toc_jsonl():
+    """Download TOC data as JSONL file"""
+    file_path = Path("usb_pd_toc.jsonl").absolute()
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404, 
+            detail="TOC JSONL file not found. Please upload and parse a PDF first."
+        )
+    return FileResponse(
+        path=str(file_path),
+        media_type='application/jsonl',
+        filename="usb_pd_toc.jsonl"
+    )
+
+@app.get("/download/sections-jsonl")
+async def download_sections_jsonl():
+    """Download sections data as JSONL file"""
+    file_path = Path("usb_pd_spec.jsonl").absolute()
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404, 
+            detail="Sections JSONL file not found. Please upload and parse a PDF first."
+        )
+    return FileResponse(
+        path=str(file_path),
+        media_type='application/jsonl',
+        filename="usb_pd_spec.jsonl"
+    )
+
+
+
 
 if __name__ == "__main__":
     uvicorn.run(

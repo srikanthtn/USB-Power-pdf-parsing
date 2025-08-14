@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import pdfplumber
 from dataclasses import dataclass, asdict
+import fitz  # PyMuPDF
 
 
 @dataclass
@@ -228,9 +229,60 @@ class USBPDParser:
         print("Generating validation report...")
         validation_report = self.generate_validation_report(toc_entries, sections)
         
+        # Save TOC to JSONL
+        with open('usb_pd_toc.jsonl', 'w', encoding='utf-8') as f:
+            for entry in toc_entries:
+                json.dump(entry.__dict__, f)
+                f.write('\n')
+
+        # Save sections to JSONL
+        with open('usb_pd_spec.jsonl', 'w', encoding='utf-8') as f:
+            for section in sections:
+                json.dump(section.__dict__, f)
+                f.write('\n')
+        
         return toc_entries, sections, validation_report
 
-
+    def parse_pdf(self, pdf_path: str, start_page: int = 1, end_page: Optional[int] = None) -> Tuple[List[TOCEntry], List[Section]]:
+        doc = fitz.open(pdf_path)
+        
+        # Validate page range
+        if end_page is None:
+            end_page = doc.page_count
+        
+        if start_page < 1 or start_page > doc.page_count:
+            raise ValueError(f"Start page must be between 1 and {doc.page_count}")
+        if end_page < start_page or end_page > doc.page_count:
+            raise ValueError(f"End page must be between {start_page} and {doc.page_count}")
+            
+        # Adjust page range to 0-based index
+        start_page -= 1
+        end_page -= 1
+        
+        # Modify your existing parsing logic to use the page range
+        # Only process pages within the specified range
+        with pdfplumber.open(self.pdf_path) as pdf:
+            for i, entry in enumerate(toc_entries):
+                # Determine page range for this section
+                section_start_page = max(start_page, entry.page - 1)  # 0-indexed
+                section_end_page = (toc_entries[i + 1].page - 1 
+                                   if i + 1 < len(toc_entries) 
+                                   else len(pdf.pages))
+                
+                # Extract content from pages
+                content = self._extract_page_range(pdf, section_start_page, section_end_page)
+                
+                section = Section(
+                    doc_title=self.doc_title,
+                    section_id=entry.section_id,
+                    title=entry.title,
+                    page=entry.page,
+                    content=content[:1000] if content else ""  # Truncate for demo
+                )
+                sections.append(section)
+        
+        return sections
+    
 def main():
     """Main execution function"""
     # Configuration
