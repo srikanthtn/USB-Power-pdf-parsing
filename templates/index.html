@@ -344,6 +344,29 @@
         content: "⭳";
         font-size: 1.2em;
     }
+    
+    .connection-status {
+        margin-top: 15px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .connection-status.connected {
+        background: rgba(16, 185, 129, 0.2);
+        border-color: rgba(16, 185, 129, 0.4);
+        color: #10B981;
+    }
+    
+    .connection-status.disconnected {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.4);
+        color: #EF4444;
+    }
 </style>
 </head>
 <body>
@@ -351,6 +374,7 @@
     <header>
         <h1>USB PD Specification Parser</h1>
         <div class="subtitle">Advanced PDF Analysis & Search Platform</div>
+        <div id="connectionStatus" class="connection-status">Checking connection...</div>
     </header>
 
     <!-- File Upload -->
@@ -416,6 +440,19 @@
         <div id="sectionsContainer"></div>
     </div>
 
+    <!-- PDF Metadata -->
+    <div class="card">
+        <h2>
+            <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 20l9-5-9-5-9 5 9 5z"/>
+                <path d="M12 12l9-5-9-5-9 5 9 5z"/>
+            </svg>
+            PDF Metadata
+        </h2>
+        <button onclick="loadMetadata()">Load Metadata</button>
+        <div id="metadataContainer"></div>
+    </div>
+
     <!-- Clear -->
     <div class="card">
         <h2>
@@ -450,6 +487,32 @@
 <script>
 const API_BASE = "http://127.0.0.1:8000";
 
+// Check connection status
+async function checkConnection() {
+    const statusElement = document.getElementById("connectionStatus");
+    try {
+        const response = await fetch(`${API_BASE}/api/stats`, { 
+            method: 'GET',
+            signal: AbortSignal.timeout(5000) // 5 second timeout
+        });
+        if (response.ok) {
+            statusElement.textContent = "✅ Connected to backend";
+            statusElement.className = "connection-status connected";
+        } else {
+            statusElement.textContent = "⚠️ Backend error";
+            statusElement.className = "connection-status disconnected";
+        }
+    } catch (err) {
+        statusElement.textContent = "❌ Backend disconnected";
+        statusElement.className = "connection-status disconnected";
+    }
+}
+
+// Check connection on page load (one-time)
+document.addEventListener('DOMContentLoaded', function() {
+    checkConnection();
+});
+
 // Upload PDF
 async function uploadPDF(event) {
     event.preventDefault();
@@ -477,17 +540,20 @@ async function uploadPDF(event) {
         });
         
         if (!response.ok) {
-            throw new Error("Upload failed");
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
-        showStatus("uploadStatus", "Document processed successfully!", "success");
+        showStatus("uploadStatus", `Document processed successfully! Found ${data.toc_entries} TOC entries and ${data.sections} sections.`, "success");
         
-        // Reload TOC and sections
+        // Reload TOC, sections, and metadata
         await loadTOC();
         await loadSections();
+        await loadMetadata();
     } catch (err) {
         showStatus("uploadStatus", "Error: " + err.message, "error");
+        console.error("Upload error:", err);
     }
 }
 
@@ -535,6 +601,39 @@ async function loadSections() {
     }
 }
 
+// Load Metadata
+async function loadMetadata() {
+    const container = document.getElementById("metadataContainer");
+    container.innerHTML = '<div class="loading">Loading PDF metadata</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/metadata`);
+        const data = await res.json();
+        if (res.ok) {
+            const rows = [
+                ["File Name", data.file_name],
+                ["File Size", data.file_size],
+                ["Page Count", data.page_count],
+                ["Title", data.title || "-"],
+                ["Author", data.author || "-"],
+                ["Subject", data.subject || "-"],
+                ["Keywords", data.keywords || "-"],
+                ["Creator", data.creator || "-"],
+                ["Producer", data.producer || "-"],
+                ["Created", data.creation_date || "-"],
+                ["Modified", data.mod_date || "-"],
+            ];
+            let html = `<table><tr><th>Field</th><th>Value</th></tr>`;
+            rows.forEach(([k, v]) => html += `<tr><td>${k}</td><td>${v}</td></tr>`);
+            html += `</table>`;
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = `<p style="color: #ef4444;">${data.detail}</p>`;
+        }
+    } catch {
+        container.innerHTML = "<p style='color: #ef4444;'>Error loading metadata</p>";
+    }
+}
+
 // Search
 async function searchSections() {
     const query = document.getElementById("searchQuery").value.trim();
@@ -549,18 +648,23 @@ async function searchSections() {
         const data = await res.json();
         if (res.ok) {
             let html = "";
-            data.results.forEach(r => {
-                html += `<div class="result-card">
-                    <strong>${r.title}</strong>
-                    <div class="page-info">Page ${r.page}</div>
-                    <div class="content-preview">${r.content_preview}</div>
-                </div>`;
-            });
-            resultsDiv.innerHTML = html || "<p style='color: #9ca3af;'>No results found for your search</p>";
+            if (data.results && data.results.length > 0) {
+                data.results.forEach(r => {
+                    html += `<div class="result-card">
+                        <strong>${r.title}</strong>
+                        <div class="page-info">Page ${r.page}</div>
+                        <div class="content-preview">${r.content_preview}</div>
+                    </div>`;
+                });
+                resultsDiv.innerHTML = html;
+            } else {
+                resultsDiv.innerHTML = "<p style='color: #9ca3af;'>No results found for your search</p>";
+            }
         } else {
-            resultsDiv.innerHTML = `<p style="color: #ef4444;">${data.detail}</p>`;
+            resultsDiv.innerHTML = `<p style="color: #ef4444;">${data.detail || 'Search failed'}</p>`;
         }
-    } catch {
+    } catch (err) {
+        console.error("Search error:", err);
         resultsDiv.innerHTML = "<p style='color: #ef4444;'>Search failed. Please try again.</p>";
     }
 }

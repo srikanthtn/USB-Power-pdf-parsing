@@ -14,6 +14,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from main import USBPDParser, TOCEntry, Section
+import logging
+from fastapi.logger import logger
+logging.getLogger("multipart").setLevel(logging.WARNING)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -39,6 +42,55 @@ app.mount("/static", StaticFiles(directory="templates"), name="static")
 toc_entries: List[TOCEntry] = []
 sections: List[Section] = []
 current_pdf_path: Optional[str] = None
+pdf_metadata: Optional[Dict[str, Any]] = None
+
+
+def _human_size(num_bytes: int) -> str:
+	units = ["B", "KB", "MB", "GB", "TB"]
+	idx = 0
+	value = float(num_bytes)
+	while value >= 1024 and idx < len(units) - 1:
+		value /= 1024.0
+		idx += 1
+	return f"{value:.2f} {units[idx]}"
+
+
+def _parse_pdf_date(raw: Optional[str]) -> Optional[str]:
+	"""Convert PDF date strings like 'D:20241028153000+05' to ISO if possible."""
+	if not raw:
+		return None
+	try:
+		# Remove leading 'D:' if present
+		s = raw[2:] if raw.startswith('D:') else raw
+		# Pad to at least YYYYMMDDHHmmSS
+		s = (s + '0'*14)[:14]
+		year = int(s[0:4]); mon = int(s[4:6]); day = int(s[6:8])
+		hh = int(s[8:10]); mm = int(s[10:12]); ss = int(s[12:14])
+		from datetime import datetime
+		return datetime(year, mon, day, hh, mm, ss).isoformat()
+	except Exception:
+		return raw
+
+
+def extract_pdf_metadata(path: Path) -> Dict[str, Any]:
+	import fitz
+	doc = fitz.open(str(path))
+	meta = doc.metadata or {}
+	info: Dict[str, Any] = {
+		"file_name": path.name,
+		"file_size_bytes": path.stat().st_size,
+		"file_size": _human_size(path.stat().st_size),
+		"page_count": doc.page_count,
+		"title": meta.get("title"),
+		"author": meta.get("author"),
+		"subject": meta.get("subject"),
+		"keywords": meta.get("keywords"),
+		"creator": meta.get("creator"),
+		"producer": meta.get("producer"),
+		"creation_date": _parse_pdf_date(meta.get("creationDate") or meta.get("creation_date")),
+		"mod_date": _parse_pdf_date(meta.get("modDate") or meta.get("mod_date")),
+	}
+	return info
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -54,6 +106,8 @@ async def upload_pdf(
     """Upload and parse a PDF file with page range"""
     global toc_entries, sections, current_pdf_path
     
+    logger.info(f"Received file: {file.filename}")
+    
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
@@ -64,18 +118,22 @@ async def upload_pdf(
     file_path = upload_dir / file.filename
     
     try:
+        logger.info(f"Saving file to: {file_path}")
         with file_path.open("wb") as f:
             content = await file.read()
             f.write(content)
         
+        logger.info(f"Initializing parser with page range: {start_page}-{end_page}")
         # Initialize parser with page range
-        parser = USBPDParser()
+        parser = USBPDParser(str(file_path))
         toc_entries, sections = parser.parse_pdf(
             str(file_path),
             start_page=start_page,
             end_page=end_page
         )
         current_pdf_path = str(file_path)
+        # Extract and store PDF metadata
+        globals()['pdf_metadata'] = extract_pdf_metadata(file_path)
         
         return {
             "message": "PDF processed successfully",
@@ -85,7 +143,14 @@ async def upload_pdf(
             "sections": len(sections)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
+        # Clean up the file if there was an error
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception as cleanup_error:
+            logger.error(f"Error cleaning up file: {str(cleanup_error)}")
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
 @app.get("/api/toc")
 async def get_toc():
@@ -108,6 +173,13 @@ async def get_sections():
         "sections": [section.__dict__ for section in sections],
         "total_count": len(sections)
     }
+
+@app.get("/api/metadata")
+async def get_metadata():
+	"""Return metadata for the last uploaded PDF."""
+	if not pdf_metadata:
+		raise HTTPException(status_code=404, detail="No PDF metadata available. Please upload a PDF first.")
+	return pdf_metadata
 
 @app.get("/api/section/{section_id}")
 async def get_section_by_id(section_id: str):
@@ -169,7 +241,9 @@ async def get_stats():
         "toc_entries_count": len(toc_entries),
         "sections_count": len(sections),
         "toc_levels_distribution": toc_levels,
-        "current_pdf": current_pdf_path
+        "current_pdf": current_pdf_path,
+        "page_count": pdf_metadata.get("page_count") if pdf_metadata else None,
+        "file_size": pdf_metadata.get("file_size") if pdf_metadata else None,
     }
 
 @app.get("/api/export/toc")
@@ -202,6 +276,7 @@ async def clear_data():
     toc_entries = []
     sections = []
     current_pdf_path = None
+    globals()['pdf_metadata'] = None
     
     # Clean up temporary files
     upload_dir = Path("uploads")

@@ -5,6 +5,19 @@ from typing import Dict, List, Optional, Tuple, Any
 import pdfplumber
 from dataclasses import dataclass, asdict
 import fitz  # PyMuPDF
+import logging
+
+# Configure logging (quieter defaults)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('pdf_parser.log')
+    ]
+)
+
+logger = logging.getLogger('USBPDParser')
 
 
 @dataclass
@@ -36,6 +49,7 @@ class USBPDParser:
     """Main parser class for USB PD specification documents"""
     
     def __init__(self, pdf_path: str, doc_title: str = "USB Power Delivery Specification"):
+        logger.info("Initializing USB PD Parser")
         self.pdf_path = Path(pdf_path)
         self.doc_title = doc_title
         self.toc_pattern = re.compile(r'^(\d+(?:\.\d+)*)\s+(.+?)\s+(\d+)$')
@@ -59,6 +73,7 @@ class USBPDParser:
                         self.toc_pattern.match(line)):
                         toc_lines.append(line)
         
+        logger.debug(f"Extracted {len(toc_lines)} lines from ToC")
         return toc_lines
     
     def parse_toc_line(self, line: str) -> Optional[TOCEntry]:
@@ -79,6 +94,8 @@ class USBPDParser:
         
         # Generate tags from title keywords
         tags = self._extract_tags(title)
+        
+        logger.debug(f"Parsed TOC line: {section_id} - {title} (Page {page_str})")
         
         return TOCEntry(
             doc_title=self.doc_title,
@@ -111,6 +128,8 @@ class USBPDParser:
             if any(word in title_lower for word in words):
                 tags.append(tag)
         
+        logger.debug(f"Extracted tags for '{title}': {tags}")
+        
         return tags if tags else None
     
     def parse_toc(self) -> List[TOCEntry]:
@@ -123,6 +142,7 @@ class USBPDParser:
             if entry:
                 entries.append(entry)
         
+        logger.info(f"Parsed {len(entries)} TOC entries")
         return entries
     
     def extract_sections(self, toc_entries: List[TOCEntry]) -> List[Section]:
@@ -149,6 +169,7 @@ class USBPDParser:
                 )
                 sections.append(section)
         
+        logger.info(f"Extracted {len(sections)} sections from PDF")
         return sections
     
     def _extract_page_range(self, pdf, start_page: int, end_page: int) -> str:
@@ -160,6 +181,8 @@ class USBPDParser:
             text = page.extract_text()
             if text:
                 content.append(text)
+        
+        logger.debug(f"Extracted content from pages {start_page+1} to {end_page}")
         
         return '\n'.join(content)
     
@@ -209,24 +232,25 @@ class USBPDParser:
             ]
         }
         
+        logger.info("Generated validation report")
         return report_data
     
     def process_pdf(self) -> Tuple[List[TOCEntry], List[Section], Dict[str, Any]]:
         """Main processing pipeline"""
-        print(f"Processing PDF: {self.pdf_path}")
+        logger.info(f"Processing PDF: {self.pdf_path}")
         
         # Parse ToC
-        print("Extracting Table of Contents...")
+        logger.info("Extracting Table of Contents...")
         toc_entries = self.parse_toc()
-        print(f"Found {len(toc_entries)} ToC entries")
+        logger.info(f"Found {len(toc_entries)} ToC entries")
         
         # Extract sections
-        print("Extracting sections...")
+        logger.info("Extracting sections...")
         sections = self.extract_sections(toc_entries)
-        print(f"Extracted {len(sections)} sections")
+        logger.info(f"Extracted {len(sections)} sections")
         
         # Generate validation report
-        print("Generating validation report...")
+        logger.info("Generating validation report...")
         validation_report = self.generate_validation_report(toc_entries, sections)
         
         # Save TOC to JSONL
@@ -241,48 +265,60 @@ class USBPDParser:
                 json.dump(section.__dict__, f)
                 f.write('\n')
         
+        logger.info("PDF processing completed successfully")
         return toc_entries, sections, validation_report
 
     def parse_pdf(self, pdf_path: str, start_page: int = 1, end_page: Optional[int] = None) -> Tuple[List[TOCEntry], List[Section]]:
-        doc = fitz.open(pdf_path)
+        logger.info(f"Starting PDF parsing for file: {pdf_path}")
+        logger.info(f"Page range: {start_page} to {end_page if end_page else 'end'}")
         
-        # Validate page range
-        if end_page is None:
-            end_page = doc.page_count
-        
-        if start_page < 1 or start_page > doc.page_count:
-            raise ValueError(f"Start page must be between 1 and {doc.page_count}")
-        if end_page < start_page or end_page > doc.page_count:
-            raise ValueError(f"End page must be between {start_page} and {doc.page_count}")
+        try:
+            # Adjust page range to 0-based index
+            start_page -= 1
+            end_page = end_page - 1 if end_page else None
             
-        # Adjust page range to 0-based index
-        start_page -= 1
-        end_page -= 1
+            # Validate page range
+            logger.debug("Validating page range")
+            if end_page is None:
+                end_page = fitz.open(pdf_path).page_count - 1
+            if start_page < 0 or start_page > end_page:
+                raise ValueError(f"Start page must be between 1 and {end_page + 1}")
+            
+            # First parse the TOC to get entries
+            logger.info("Extracting Table of Contents...")
+            toc_entries = self.parse_toc()
+            sections = []
+            
+            logger.info("Extracting sections within the specified page range...")
+            # Modify your existing parsing logic to use the page range
+            # Only process pages within the specified range
+            with pdfplumber.open(pdf_path) as pdf:
+                for i, entry in enumerate(toc_entries):
+                    # Determine page range for this section
+                    section_start_page = max(start_page, entry.page - 1)  # 0-indexed
+                    section_end_page = (toc_entries[i + 1].page - 1 
+                                       if i + 1 < len(toc_entries) 
+                                       else len(pdf.pages))
+                    
+                    # Extract content from pages
+                    content = self._extract_page_range(pdf, section_start_page, section_end_page)
+                    
+                    section = Section(
+                        doc_title=self.doc_title,
+                        section_id=entry.section_id,
+                        title=entry.title,
+                        page=entry.page,
+                        content=content[:1000] if content else ""  # Truncate for demo
+                    )
+                    sections.append(section)
+            
+            logger.info(f"Parsed {len(toc_entries)} TOC entries and {len(sections)} sections")
+            return toc_entries, sections
         
-        # Modify your existing parsing logic to use the page range
-        # Only process pages within the specified range
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for i, entry in enumerate(toc_entries):
-                # Determine page range for this section
-                section_start_page = max(start_page, entry.page - 1)  # 0-indexed
-                section_end_page = (toc_entries[i + 1].page - 1 
-                                   if i + 1 < len(toc_entries) 
-                                   else len(pdf.pages))
-                
-                # Extract content from pages
-                content = self._extract_page_range(pdf, section_start_page, section_end_page)
-                
-                section = Section(
-                    doc_title=self.doc_title,
-                    section_id=entry.section_id,
-                    title=entry.title,
-                    page=entry.page,
-                    content=content[:1000] if content else ""  # Truncate for demo
-                )
-                sections.append(section)
-        
-        return sections
-    
+        except Exception as e:
+            logger.error(f"Error parsing PDF: {str(e)}", exc_info=True)
+            raise
+            
 def main():
     """Main execution function"""
     # Configuration
