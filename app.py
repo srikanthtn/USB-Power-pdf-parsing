@@ -43,12 +43,14 @@ current_pdf_path: Optional[str] = None
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Serve the main HTML page"""
-    return templates.TemplateResponse("intex.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload-pdf")
 async def upload_pdf(file: UploadFile = File(...)):
     """Upload and parse a PDF file"""
     global toc_entries, sections, current_pdf_path
+    
+    print(f"Received file upload: {file.filename}")
     
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
@@ -58,14 +60,24 @@ async def upload_pdf(file: UploadFile = File(...)):
     upload_dir.mkdir(exist_ok=True)
     
     file_path = upload_dir / file.filename
-    with open(file_path, "wb") as buffer:
-        content = await file.read()
-        buffer.write(content)
+    print(f"Saving file to: {file_path}")
     
     try:
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+            print(f"File saved successfully, size: {len(content)} bytes")
+    except Exception as e:
+        print(f"Error saving file: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving uploaded file: {str(e)}")
+    
+    try:
+        print("Starting PDF parsing...")
         # Parse the PDF
         parser = USBPDParser(str(file_path), "USB Power Delivery Specification")
         toc_entries, sections, validation_report = parser.process_pdf()
+        
+        print(f"Parsing completed. TOC entries: {len(toc_entries)}, Sections: {len(sections)}")
         
         # Save parsed data
         parser.save_jsonl(toc_entries, "usb_pd_toc.jsonl")
@@ -81,6 +93,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         }
         
     except Exception as e:
+        print(f"Error during PDF parsing: {e}")
+        import traceback
+        traceback.print_exc()
         # Clean up on error
         if file_path.exists():
             file_path.unlink()

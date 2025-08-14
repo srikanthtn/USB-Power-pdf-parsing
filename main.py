@@ -1,8 +1,7 @@
 import json
 import re
-import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import pdfplumber
 from dataclasses import dataclass, asdict
 
@@ -174,7 +173,7 @@ class USBPDParser:
                 f.write('\n')
     
     def generate_validation_report(self, toc_entries: List[TOCEntry], 
-                                 sections: List[Section]) -> pd.DataFrame:
+                                 sections: List[Section]) -> Dict[str, Any]:
         """Generate validation report comparing ToC vs parsed sections"""
         # Create comparison data
         toc_ids = {entry.section_id for entry in toc_entries}
@@ -209,9 +208,9 @@ class USBPDParser:
             ]
         }
         
-        return pd.DataFrame(report_data)
+        return report_data
     
-    def process_pdf(self) -> Tuple[List[TOCEntry], List[Section], pd.DataFrame]:
+    def process_pdf(self) -> Tuple[List[TOCEntry], List[Section], Dict[str, Any]]:
         """Main processing pipeline"""
         print(f"Processing PDF: {self.pdf_path}")
         
@@ -251,14 +250,14 @@ def main():
         parser.save_jsonl(sections, "usb_pd_spec.jsonl")
         
         # Save validation report
-        with pd.ExcelWriter("validation_report.xlsx", engine='openpyxl') as writer:
-            validation_report.to_excel(writer, sheet_name='Validation', index=False)
+        with open("validation_report.json", "w") as f:
+            json.dump(validation_report, f, indent=2)
         
         print("Processing completed successfully!")
         print(f"Generated files:")
         print(f"  - usb_pd_toc.jsonl ({len(toc_entries)} entries)")
         print(f"  - usb_pd_spec.jsonl ({len(sections)} sections)")
-        print(f"  - validation_report.xlsx")
+        print(f"  - validation_report.json")
         
         # Print sample data
         if toc_entries:

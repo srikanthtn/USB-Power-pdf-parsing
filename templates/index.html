@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>USB PD Specification Parser</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+        min-height: 100vh;
+        color: #e0e6ed;
+    }
+    
+    .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    header {
+        text-align: center;
+        margin-bottom: 40px;
+        padding: 40px 0;
+    }
+    
+    header h1 {
+        font-size: 3rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 10px;
+        text-shadow: 0 0 30px rgba(102, 126, 234, 0.3);
+    }
+    
+    .subtitle {
+        color: #9ca3af;
+        font-size: 1.2rem;
+        font-weight: 300;
+    }
+    
+    .card {
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 30px;
+        margin-bottom: 30px;
+        transition: all 0.3s ease;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+        border-color: rgba(102, 126, 234, 0.3);
+    }
+    
+    .card h2 {
+        font-size: 1.5rem;
+        margin-bottom: 20px;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .icon {
+        width: 24px;
+        height: 24px;
+        opacity: 0.8;
+    }
+    
+    input[type="file"], input[type="text"] {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 12px 16px;
+        color: #f8fafc;
+        font-size: 14px;
+        transition: all 0.3s ease;
+        margin-right: 12px;
+        margin-bottom: 12px;
+        min-width: 200px;
+    }
+    
+    input[type="file"]:focus, input[type="text"]:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        background: rgba(255, 255, 255, 0.08);
+    }
+    
+    input::placeholder {
+        color: #9ca3af;
+    }
+    
+    button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        border-radius: 12px;
+        padding: 12px 24px;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-right: 12px;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+    }
+    
+    button:active {
+        transform: translateY(0);
+    }
+    
+    .btn-danger {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    }
+    
+    .btn-danger:hover {
+        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+        box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
+    }
+    
+    .status {
+        margin-top: 15px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        font-weight: 500;
+        opacity: 0;
+        animation: fadeIn 0.5s ease forwards;
+    }
+    
+    @keyframes fadeIn {
+        to { opacity: 1; }
+    }
+    
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 12px;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+    }
+    
+    th {
+        background: rgba(102, 126, 234, 0.1);
+        color: #f8fafc;
+        font-weight: 600;
+        padding: 16px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-size: 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    td {
+        padding: 12px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        transition: background 0.2s ease;
+    }
+    
+    tr:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+    
+    tr:last-child td {
+        border-bottom: none;
+    }
+    
+    .result-card {
+        background: rgba(102, 126, 234, 0.05);
+        border: 1px solid rgba(102, 126, 234, 0.1);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 15px;
+        transition: all 0.3s ease;
+    }
+    
+    .result-card:hover {
+        background: rgba(102, 126, 234, 0.08);
+        border-color: rgba(102, 126, 234, 0.2);
+        transform: translateX(5px);
+    }
+    
+    .result-card strong {
+        color: #667eea;
+        font-size: 1.1rem;
+        display: block;
+        margin-bottom: 8px;
+    }
+    
+    .page-info {
+        color: #9ca3af;
+        font-size: 0.9rem;
+        margin-bottom: 10px;
+    }
+    
+    .content-preview {
+        line-height: 1.6;
+        color: #d1d5db;
+    }
+    
+    .loading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #9ca3af;
+        font-style: italic;
+    }
+    
+    .loading::after {
+        content: '';
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(102, 126, 234, 0.2);
+        border-top: 2px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    .file-input-wrapper {
+        position: relative;
+        display: inline-block;
+        overflow: hidden;
+        background: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+        border-radius: 12px;
+        border: 2px dashed rgba(255, 255, 255, 0.2);
+        padding: 20px;
+        text-align: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        min-width: 300px;
+        flex: 1;
+    }
+    
+    .file-input-wrapper:hover {
+        border-color: #667eea;
+        background: linear-gradient(135deg, #4b5563 0%, #6b7280 100%);
+    }
+    
+    .file-input-wrapper input[type="file"] {
+        position: absolute;
+        left: -9999px;
+        margin: 0;
+        padding: 0;
+    }
+    
+    .file-label {
+        color: #d1d5db;
+        font-weight: 500;
+    }
+    
+    .search-container {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    
+    .search-input {
+        flex: 1;
+        min-width: 250px;
+    }
+    
+    @media (max-width: 768px) {
+        .container { padding: 15px; }
+        header h1 { font-size: 2rem; }
+        .card { padding: 20px; }
+        .search-container { flex-direction: column; }
+        .search-input { width: 100%; }
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>USB PD Specification Parser</h1>
+        <div class="subtitle">Advanced PDF Analysis & Search Platform</div>
+    </header>
+
+    <!-- File Upload -->
+    <div class="card">
+        <h2>
+            <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+            </svg>
+            Upload PDF Document
+        </h2>
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div class="file-input-wrapper" onclick="document.getElementById('pdfFile').click()">
+                <input type="file" id="pdfFile" accept=".pdf">
+                <div class="file-label">Click to select PDF file or drag & drop</div>
+            </div>
+            <button onclick="uploadPDF()">Upload & Process</button>
+        </div>
+        <div id="uploadStatus" class="status"></div>
+    </div>
+
+    <!-- Search -->
+    <div class="card">
+        <h2>
+            <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"/>
+            </svg>
+            Smart Search
+        </h2>
+        <div class="search-container">
+            <input type="text" id="searchQuery" placeholder="Enter keywords to search..." class="search-input">
+            <button onclick="searchSections()">Search</button>
+        </div>
+        <div id="searchResults"></div>
+    </div>
+
+    <!-- TOC -->
+    <div class="card">
+        <h2>
+            <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"/>
+            </svg>
+            Table of Contents
+        </h2>
+        <button onclick="loadTOC()">Load TOC</button>
+        <div id="tocContainer"></div>
+    </div>
+
+    <!-- Sections -->
+    <div class="card">
+        <h2>
+            <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                <path fill-rule="evenodd" d="M4 5a2 2 0 012-2v1a1 1 0 001 1h6a1 1 0 001-1V3a2 2 0 012 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm2.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm2.45.75a2.5 2.5 0 10-4.9 0h4.9z"/>
+            </svg>
+            Document Sections
+        </h2>
+        <button onclick="loadSections()">Load Sections</button>
+        <div id="sectionsContainer"></div>
+    </div>
+
+    <!-- Clear -->
+    <div class="card">
+        <h2>
+            <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"/>
+            </svg>
+            Data Management
+        </h2>
+        <button class="btn-danger" onclick="clearData()">Clear All Data</button>
+    </div>
+</div>
+
+<script>
+const API_BASE = "http://127.0.0.1:8000";
+
+// Upload PDF
+async function uploadPDF() {
+    const fileInput = document.getElementById("pdfFile");
+    if (!fileInput.files.length) {
+        showStatus("uploadStatus", "Please select a PDF file first", "error");
+        return;
+    }
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    showStatus("uploadStatus", "Processing document...", "loading");
+    try {
+        const res = await fetch(`${API_BASE}/upload-pdf`, {
+            method: "POST",
+            body: formData
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showStatus("uploadStatus", `✅ Success: ${data.filename} processed (TOC: ${data.toc_count}, Sections: ${data.sections_count})`, "success");
+        } else {
+            showStatus("uploadStatus", `❌ Error: ${data.detail}`, "error");
+        }
+    } catch (err) {
+        showStatus("uploadStatus", "❌ Upload failed. Please try again.", "error");
+    }
+}
+
+// Load TOC
+async function loadTOC() {
+    const container = document.getElementById("tocContainer");
+    container.innerHTML = '<div class="loading">Loading table of contents</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/toc`);
+        const data = await res.json();
+        if (res.ok) {
+            let html = `<table><tr><th>Section ID</th><th>Title</th><th>Page</th></tr>`;
+            data.toc_entries.forEach(entry => {
+                html += `<tr><td>${entry.section_id}</td><td>${entry.title}</td><td>${entry.page}</td></tr>`;
+            });
+            html += `</table>`;
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = `<p style="color: #ef4444;">${data.detail}</p>`;
+        }
+    } catch {
+        container.innerHTML = "<p style='color: #ef4444;'>Error loading table of contents</p>";
+    }
+}
+
+// Load Sections
+async function loadSections() {
+    const container = document.getElementById("sectionsContainer");
+    container.innerHTML = '<div class="loading">Loading document sections</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/sections`);
+        const data = await res.json();
+        if (res.ok) {
+            let html = `<table><tr><th>Section ID</th><th>Title</th><th>Page</th></tr>`;
+            data.sections.forEach(sec => {
+                html += `<tr><td>${sec.section_id}</td><td>${sec.title}</td><td>${sec.page}</td></tr>`;
+            });
+            html += `</table>`;
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = `<p style="color: #ef4444;">${data.detail}</p>`;
+        }
+    } catch {
+        container.innerHTML = "<p style='color: #ef4444;'>Error loading sections</p>";
+    }
+}
+
+// Search
+async function searchSections() {
+    const query = document.getElementById("searchQuery").value.trim();
+    if (!query) {
+        showNotification("Enter search keywords");
+        return;
+    }
+    const resultsDiv = document.getElementById("searchResults");
+    resultsDiv.innerHTML = '<div class="loading">Searching document</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/search?query=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        if (res.ok) {
+            let html = "";
+            data.results.forEach(r => {
+                html += `<div class="result-card">
+                    <strong>${r.title}</strong>
+                    <div class="page-info">Page ${r.page}</div>
+                    <div class="content-preview">${r.content_preview}</div>
+                </div>`;
+            });
+            resultsDiv.innerHTML = html || "<p style='color: #9ca3af;'>No results found for your search</p>";
+        } else {
+            resultsDiv.innerHTML = `<p style="color: #ef4444;">${data.detail}</p>`;
+        }
+    } catch {
+        resultsDiv.innerHTML = "<p style='color: #ef4444;'>Search failed. Please try again.</p>";
+    }
+}
+
+// Clear Data
+async function clearData() {
+    if (!confirm("⚠️ This will permanently delete all parsed data. Continue?")) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/clear`, { method: "DELETE" });
+        const data = await res.json();
+        showNotification("✅ " + data.message);
+        document.getElementById("tocContainer").innerHTML = "";
+        document.getElementById("sectionsContainer").innerHTML = "";
+        document.getElementById("searchResults").innerHTML = "";
+        document.getElementById("uploadStatus").innerHTML = "";
+    } catch {
+        showNotification("❌ Error clearing data");
+    }
+}
+
+// Helper Functions
+function showStatus(elementId, message, type) {
+    const element = document.getElementById(elementId);
+    element.innerHTML = message;
+    element.className = `status ${type}`;
+    element.style.opacity = "0";
+    requestAnimationFrame(() => {
+        element.style.opacity = "1";
+    });
+}
+
+function showNotification(message) {
+    // Simple notification system
+    const notification = document.createElement('div');
+    notification.innerHTML = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(102, 126, 234, 0.9);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 3000);
+}
+
+// Add enter key support for search
+document.getElementById('searchQuery').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        searchSections();
+    }
+});
+</script>
+
+<style>
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+</style>
+</body>
+</html>
