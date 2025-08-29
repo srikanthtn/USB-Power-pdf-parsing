@@ -2,14 +2,7 @@
 """
 Run script for FastAPI USB PD Parser
 """
-
-import uvicorn
+from usbpd.app_runner import USBPDParserApp
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+	raise SystemExit(USBPDParserApp.main())

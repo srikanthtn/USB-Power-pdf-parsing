@@ -1,6 +1,7 @@
-# USB PD Specification Parser - FastAPI Backend
+# USB PD Specification Parser - FastAPI Backend (OOP)
 
-A modern web application for parsing and analyzing USB Power Delivery specification PDFs using FastAPI backend and responsive frontend.
+A modern web application and CLI for parsing USB Power Delivery
+specification PDFs using an OOP architecture.
 
 ## 🚀 Features
 
@@ -30,9 +31,9 @@ Make sure you have all required packages:
 
 ## 🚀 Running the Application
 
-### Option 1: Using the run script
+### Option 1: Using the CLI
 ```bash
-python run.py
+python run.py --pdf path/to/USB_PD.pdf --output out/ --title "USB PD"
 ```
 
 ### Option 2: Using uvicorn directly
@@ -44,6 +45,15 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 python app.py
 ```
+
+## Artifacts
+
+Generated files (under --output):
+
+- usb_pd_toc.jsonl
+- usb_pd_spec.jsonl
+- usb_pd_metadata.jsonl
+- validation_report.xlsx
 
 ## 🌐 Access the Application
 
@@ -57,7 +67,15 @@ Once running, open your browser and navigate to:
 ```
 v1/
 ├── app.py                 # Main FastAPI application
-├── main.py               # PDF parser logic (existing)
+├── usbpd/                # OOP parsing package
+│   ├── __init__.py
+│   ├── models.py         # TOCEntry, Section dataclasses
+│   ├── pdf_parser.py     # PDFParser (raw text/metadata)
+│   ├── toc_extractor.py  # TOCExtractor (hierarchy)
+│   ├── section_extractor.py # SectionExtractor (sections content)
+│   ├── jsonl_writer.py   # JSONLWriter (outputs)
+│   └── app_runner.py     # USBPDParserApp (orchestrator)
+├── main.py               # Legacy parser (still available)
 ├── run.py                # Startup script
 ├── requirements.txt      # Python dependencies
 ├── README.md            # This file
@@ -67,6 +85,12 @@ v1/
 │   └── style.css       # CSS styling
 ├── uploads/            # Temporary PDF storage (auto-created)
 └── *.jsonl             # Parsed data files
+
+## Tests
+
+```bash
+pytest -q
+```
 ```
 
 ## 🔧 API Endpoints

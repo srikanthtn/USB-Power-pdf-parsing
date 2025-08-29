@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from main import USBPDParser, TOCEntry, Section
+from usbpd import USBPDParserApp, TOCEntry, Section
 import logging
 from fastapi.logger import logger
 logging.getLogger("multipart").setLevel(logging.WARNING)
@@ -124,13 +124,9 @@ async def upload_pdf(
             f.write(content)
         
         logger.info(f"Initializing parser with page range: {start_page}-{end_page}")
-        # Initialize parser with page range
-        parser = USBPDParser(str(file_path))
-        toc_entries, sections = parser.parse_pdf(
-            str(file_path),
-            start_page=start_page,
-            end_page=end_page
-        )
+        # Use orchestrator to run and generate outputs
+        app_runner = USBPDParserApp(str(file_path))
+        toc_entries, sections, _ = app_runner.run()
         current_pdf_path = str(file_path)
         # Extract and store PDF metadata
         globals()['pdf_metadata'] = extract_pdf_metadata(file_path)
